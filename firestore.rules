@@ -1,0 +1,106 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. Global Catch-All Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Security Primitives
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isValidTransaction(data, userId) {
+      return data.keys().hasAll(['id', 'userId', 'description', 'amount', 'type', 'category', 'date'])
+        && data.keys().hasOnly([
+          'id', 'userId', 'description', 'amount', 'type', 'category', 'date',
+          'createdAt', 'paymentMethod', 'recurring', 'recurringFrequency', 'receipt', 'notes'
+        ])
+        && data.id is string
+        && isValidId(data.id)
+        && data.userId == userId
+        && data.description is string
+        && data.description.size() >= 1
+        && data.description.size() <= 100
+        && data.amount is number
+        && data.amount > 0
+        && data.type in ['income', 'expense']
+        && data.category in [
+          'Salary',
+          'Freelance',
+          'Investments',
+          'Business',
+          'Rental',
+          'Housing',
+          'Groceries',
+          'Transport',
+          'Utilities',
+          'Entertainment',
+          'Healthcare',
+          'Education',
+          'Shopping',
+          'Dining Out',
+          'Personal Care',
+          'Travel',
+          'Others'
+        ]
+        && data.date is string
+        && data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && (!('paymentMethod' in data) || data.paymentMethod in ['UPI', 'Cash', 'Debit Card', 'Credit Card', 'Bank Transfer', 'Other'])
+        && (!('recurring' in data) || data.recurring is bool)
+        && (!('recurringFrequency' in data) || data.recurringFrequency in ['weekly', 'monthly', 'yearly'])
+        && (!('notes' in data) || (data.notes is string && data.notes.size() <= 500));
+    }
+
+    // Connection Health Probe for client startup test
+    match /test/{docId} {
+      allow read: if true;
+    }
+
+    // 2. User Profiles
+    match /users/{userId} {
+      allow read, write: if isOwner(userId) && isValidId(userId);
+
+      // 3. User Transactions Subcollection (Master Gate)
+      match /transactions/{transactionId} {
+        allow get, list: if isOwner(userId);
+
+        allow create: if isOwner(userId)
+          && isValidId(transactionId)
+          && isValidTransaction(incoming(), userId)
+          && incoming().id == transactionId;
+
+        allow update: if isOwner(userId)
+          && isValidId(transactionId)
+          && isValidTransaction(incoming(), userId)
+          && incoming().userId == existing().userId
+          && incoming().id == existing().id
+          && incoming().diff(existing()).affectedKeys().hasOnly([
+            'description', 'amount', 'type', 'category', 'date',
+            'createdAt', 'paymentMethod', 'recurring', 'recurringFrequency', 'receipt', 'notes'
+          ]);
+
+        allow delete: if isOwner(userId) && isValidId(transactionId);
+      }
+    }
+  }
+}

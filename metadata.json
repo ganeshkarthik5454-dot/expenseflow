@@ -1,0 +1,6 @@
+{
+  "name": "ExpenseFlow - Personal Expense Tracker & Financial Dashboard",
+  "description": "A minimalist, responsive personal expense tracker with real-time financial analytics, monthly reports, category breakdowns, and CSV export.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
